@@ -1,0 +1,52 @@
+name: Sales-Support SLA Monitor
+
+on:
+  schedule:
+    # Every 15 minutes. GitHub cron is best-effort and may lag a few minutes;
+    # that is irrelevant for a 24h calendar-hour SLA.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run without posting to Slack or writing Gmail labels"
+        type: boolean
+        default: false
+
+concurrency:
+  # Never let two runs overlap (would risk double-posting before labels land).
+  group: sales-support-sla
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run SLA monitor
+        env:
+          # --- Gmail auth: provide EITHER the service-account JSON ...
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          # --- ... OR an OAuth refresh token trio:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          # --- Slack output (bot token preferred; webhook is a fallback):
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL || 'C0B7P5LCRK7' }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # --- Tuning (optional; defaults shown in sla_monitor.py):
+          GMAIL_USER: ${{ vars.GMAIL_USER || 'me' }}
+          SALES_SUPPORT_ADDRESS: ${{ vars.SALES_SUPPORT_ADDRESS || 'sales-support@praetorian.com' }}
+          INTERNAL_DOMAINS: ${{ vars.INTERNAL_DOMAINS || 'praetorian.com' }}
+          SLA_HOURS: ${{ vars.SLA_HOURS || '24' }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python sla_monitor.py

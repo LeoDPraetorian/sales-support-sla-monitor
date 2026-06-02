@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+# Never commit credentials — the service-account key lives in a GitHub secret.
+service-account*.json
+google-*.json
