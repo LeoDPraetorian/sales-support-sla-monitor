@@ -29,11 +29,13 @@ Notes on the mailbox:
   the alias in headers. Set GMAIL_USER to that member (default 'me' for option A).
 """
 
+import base64
 import json
 import os
 import sys
 import time
 import urllib.request
+from email.message import EmailMessage
 from email.utils import parseaddr
 
 from google.oauth2.credentials import Credentials as UserCredentials
@@ -60,6 +62,10 @@ SLACK_DM_USER_IDS = [
     u.strip() for u in os.environ.get("SLACK_DM_USER_IDS", "").split(",") if u.strip()
 ]
 DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
+# Carrier email-to-SMS gateway address, e.g. "5551234567@vtext.com".
+SMS_GATEWAY = os.environ.get("SMS_GATEWAY", "")
+# What to text: "breach" (default) or "all".
+SMS_SCOPE = os.environ.get("SMS_SCOPE", "breach").lower()
 
 # how far back to look. NOTIFY only needs a short window; SLA needs enough to
 # still catch a thread that has been waiting just over SLA_HOURS.
@@ -174,6 +180,22 @@ def post_slack(text):
         resp.read()
 
 
+def send_sms(svc, text):
+    """Text via a carrier email-to-SMS gateway, using the Gmail send scope.
+    Kept short — SMS truncates around 160 chars."""
+    if not SMS_GATEWAY:
+        return
+    body = text[:150]
+    if DRY_RUN:
+        print(f"[dry-run] would SMS {SMS_GATEWAY}: {body}")
+        return
+    msg = EmailMessage()
+    msg["To"] = SMS_GATEWAY
+    msg.set_content(body)
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    svc.users().messages().send(userId=GMAIL_USER, body={"raw": raw}).execute()
+
+
 def add_label(svc, msg_id, label_id):
     if DRY_RUN:
         return
@@ -216,6 +238,8 @@ def notify_new(svc, notified_id):
             f"<{thread_link(msg['threadId'])}|Open thread>"
         )
         post_slack(text)
+        if SMS_SCOPE == "all":
+            send_sms(svc, f"sales-support: {subject} — from {frm}")
         add_label(svc, ref["id"], notified_id)
 
 
@@ -266,6 +290,8 @@ def check_sla(svc, breached_id):
             f"<{thread_link(tid)}|Open thread>"
         )
         post_slack(text)
+        if SMS_SCOPE in ("all", "breach"):
+            send_sms(svc, f"SLA BREACH ({fmt_age(age_h)}): {subject} — last from {frm}")
         add_label(svc, latest["id"], breached_id)
         print(f"  thread {tid}: BREACH escalated ({age_h:.1f}h)")
 

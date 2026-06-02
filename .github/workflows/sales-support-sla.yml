@@ -44,6 +44,9 @@ jobs:
           SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL || 'C0B7P5LCRK7' }}
           SLACK_DM_USER_IDS: ${{ vars.SLACK_DM_USER_IDS }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # --- Email->SMS gateway (optional):
+          SMS_GATEWAY: ${{ secrets.SMS_GATEWAY }}
+          SMS_SCOPE: ${{ vars.SMS_SCOPE || 'breach' }}
           # --- Tuning (optional; defaults shown in sla_monitor.py):
           GMAIL_USER: ${{ vars.GMAIL_USER || 'me' }}
           SALES_SUPPORT_ADDRESS: ${{ vars.SALES_SUPPORT_ADDRESS || 'sales-support@praetorian.com' }}
