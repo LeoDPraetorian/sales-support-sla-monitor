@@ -55,6 +55,10 @@ GMAIL_USER = os.environ.get("GMAIL_USER", "me")
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "")
+# Comma-separated Slack user IDs to also DM (bot token needs im:write).
+SLACK_DM_USER_IDS = [
+    u.strip() for u in os.environ.get("SLACK_DM_USER_IDS", "").split(",") if u.strip()
+]
 DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
 
 # how far back to look. NOTIFY only needs a short window; SLA needs enough to
@@ -134,24 +138,33 @@ def thread_link(thread_id):
     return f"https://mail.google.com/mail/u/0/#all/{thread_id}"
 
 
+def _post_chat(channel, text):
+    """Post to one channel/user via chat.postMessage (bot token)."""
+    body = json.dumps({
+        "channel": channel, "text": text, "unfurl_links": False,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://slack.com/api/chat.postMessage", data=body, method="POST",
+        headers={"Content-Type": "application/json; charset=utf-8",
+                 "Authorization": f"Bearer {SLACK_BOT_TOKEN}"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read())
+    if not data.get("ok"):
+        raise RuntimeError(f"Slack post to {channel} failed: {data.get('error')}")
+
+
 def post_slack(text):
-    # Prefer bot token (chat.postMessage) — no browser flow, never expires.
-    # Fall back to an incoming webhook URL if that's what's configured.
+    # Bot token (chat.postMessage) — no browser flow, never expires. Fans out to
+    # the channel plus any direct-message recipients. Webhook is a single-channel
+    # fallback (no DM support).
+    targets = ([SLACK_CHANNEL] if SLACK_CHANNEL else []) + SLACK_DM_USER_IDS
     if DRY_RUN or (not SLACK_BOT_TOKEN and not SLACK_WEBHOOK_URL):
-        print(f"[dry-run/no-slack] would post to Slack:\n{text}\n")
+        dest = ", ".join(targets) or "(no destination)"
+        print(f"[dry-run/no-slack] would post to {dest}:\n{text}\n")
         return
     if SLACK_BOT_TOKEN:
-        body = json.dumps({
-            "channel": SLACK_CHANNEL, "text": text, "unfurl_links": False,
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            "https://slack.com/api/chat.postMessage", data=body, method="POST",
-            headers={"Content-Type": "application/json; charset=utf-8",
-                     "Authorization": f"Bearer {SLACK_BOT_TOKEN}"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read())
-        if not data.get("ok"):
-            raise RuntimeError(f"Slack chat.postMessage failed: {data.get('error')}")
+        for channel in targets:
+            _post_chat(channel, text)
         return
     body = json.dumps({"text": text}).encode("utf-8")
     req = urllib.request.Request(

@@ -42,6 +42,7 @@ jobs:
           # --- Slack output (bot token preferred; webhook is a fallback):
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL || 'C0B7P5LCRK7' }}
+          SLACK_DM_USER_IDS: ${{ vars.SLACK_DM_USER_IDS }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           # --- Tuning (optional; defaults shown in sla_monitor.py):
           GMAIL_USER: ${{ vars.GMAIL_USER || 'me' }}
