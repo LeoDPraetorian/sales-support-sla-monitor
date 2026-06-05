@@ -2,8 +2,11 @@ name: Sales-Support SLA Monitor
 
 on:
   schedule:
-    # Every 15 minutes. GitHub cron is best-effort and may lag a few minutes;
-    # that is irrelevant for a 24h calendar-hour SLA.
+    # This no longer drives the 5-min cadence — the job below SELF-LOOPS every
+    # 5 min for ~5h45m. The schedule's only job is to RESTART that loop roughly
+    # every few hours. GitHub throttles scheduled runs (often 1.5-5h late), but
+    # restarting every ~6h is an easy bar, and concurrency hands off seamlessly.
+    # Frequent kicks = a pending run is almost always queued when the loop ends.
     - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
@@ -20,7 +23,7 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 355   # just under GitHub's 6h job limit; the loop exits at ~5h45m
     steps:
       - uses: actions/checkout@v4
 
@@ -53,4 +56,18 @@ jobs:
           INTERNAL_DOMAINS: ${{ vars.INTERNAL_DOMAINS || 'praetorian.com' }}
           SLA_HOURS: ${{ vars.SLA_HOURS || '24' }}
           DRY_RUN: ${{ inputs.dry_run }}
-        run: python sla_monitor.py
+        run: |
+          # Self-looping runner: polls every 5 min for ~5h45m, entirely on GitHub
+          # infra — no external trigger, no dependency on anyone's machine. When
+          # this exits, the concurrency group lets a queued/scheduled run take over.
+          END=$(( SECONDS + 20700 ))   # ~5h45m, safely under the 6h job limit
+          i=0
+          while [ "$SECONDS" -lt "$END" ]; do
+            i=$(( i + 1 ))
+            echo "::group::poll #$i — $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            python sla_monitor.py || echo "poll #$i errored; continuing"
+            echo "::endgroup::"
+            [ "$(( SECONDS + 300 ))" -ge "$END" ] && break
+            sleep 300
+          done
+          echo "loop window complete after $i polls; exiting so the next run takes over"
